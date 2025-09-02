@@ -1,0 +1,476 @@
+# Django API開発の基本的な流れ - 新人エンジニア向けガイド
+
+## はじめに
+
+このガイドでは、Django REST Framework（DRF）を使用したAPI開発の基本的な流れを、実際のコード例を交えながら丁寧に説明します。新人エンジニアの方でも理解しやすいよう、各ステップで何をしているのか、なぜ必要なのかも含めて解説します。
+
+## 前提条件
+
+- Pythonの基本的な知識
+- Djangoの基礎知識（チュートリアル程度）
+- SQLの基本的な理解
+
+## 1. 環境構築とプロジェクト作成
+
+### 1.1 仮想環境の作成
+
+```bash
+# 仮想環境を作成
+python -m venv venv
+
+# 仮想環境を有効化（Windows）
+venv\Scripts\activate
+
+# 仮想環境を有効化（Mac/Linux）
+source venv/bin/activate
+```
+
+### 1.2 必要なパッケージのインストール
+
+```bash
+pip install django
+pip install djangorestframework
+pip install django-cors-headers  # フロントエンドとの連携に必要
+```
+
+### 1.3 Djangoプロジェクトの作成
+
+```bash
+# プロジェクト作成
+django-admin startproject myapi
+
+# プロジェクトディレクトリに移動
+cd myapi
+
+# アプリケーション作成
+python manage.py startapp blog
+```
+
+## 2. 設定ファイルの編集
+
+### 2.1 settings.pyの編集
+
+```python
+# myapi/settings.py
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    
+    # 追加
+    'rest_framework',
+    'corsheaders',
+    'blog',  # 作成したアプリ
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # 追加
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+# REST Framework設定
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10
+}
+
+# CORS設定（開発環境用）
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # React開発サーバーなど
+    "http://127.0.0.1:3000",
+]
+```
+
+## 3. モデルの作成
+
+### 3.1 基本的なモデルを定義
+
+```python
+# blog/models.py
+
+from django.db import models
+from django.contrib.auth.models import User
+
+class Category(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        verbose_name_plural = "categories"
+
+class Post(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_published = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return self.title
+    
+    class Meta:
+        ordering = ['-created_at']  # 新しい順で並び替え
+```
+
+### 3.2 マイグレーションの実行
+
+```bash
+# マイグレーションファイルを作成
+python manage.py makemigrations
+
+# データベースに反映
+python manage.py migrate
+
+# スーパーユーザー作成（管理画面用）
+python manage.py createsuperuser
+```
+
+## 4. シリアライザーの作成
+
+シリアライザーは、PythonオブジェクトとJSON形式の相互変換を行います。
+
+```python
+# blog/serializers.py
+
+from rest_framework import serializers
+from .models import Post, Category
+from django.contrib.auth.models import User
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'description', 'created_at']
+
+class UserSerializer(serializers.ModelSerializer):
+    """投稿者情報用のシリアライザー"""
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email']
+
+class PostListSerializer(serializers.ModelSerializer):
+    """投稿一覧用のシリアライザー（詳細情報は含まない）"""
+    author = UserSerializer(read_only=True)
+    category = CategorySerializer(read_only=True)
+    
+    class Meta:
+        model = Post
+        fields = ['id', 'title', 'author', 'category', 'created_at', 'is_published']
+
+class PostDetailSerializer(serializers.ModelSerializer):
+    """投稿詳細用のシリアライザー"""
+    author = UserSerializer(read_only=True)
+    category = CategorySerializer(read_only=True)
+    
+    class Meta:
+        model = Post
+        fields = '__all__'
+
+class PostCreateUpdateSerializer(serializers.ModelSerializer):
+    """投稿作成・更新用のシリアライザー"""
+    class Meta:
+        model = Post
+        fields = ['title', 'content', 'category', 'is_published']
+    
+    def create(self, validated_data):
+        # 現在のユーザーを作成者として設定
+        validated_data['author'] = self.context['request'].user
+        return super().create(validated_data)
+```
+
+## 5. ビューの作成
+
+### 5.1 基本的なAPIビュー
+
+```python
+# blog/views.py
+
+from rest_framework import generics, status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+
+from .models import Post, Category
+from .serializers import (
+    PostListSerializer, 
+    PostDetailSerializer, 
+    PostCreateUpdateSerializer,
+    CategorySerializer
+)
+
+# 関数ベースのビュー例
+@api_view(['GET'])
+def api_overview(request):
+    """API概要を返す"""
+    api_urls = {
+        'List Posts': '/api/posts/',
+        'Detail Post': '/api/posts/<int:id>/',
+        'Create Post': '/api/posts/create/',
+        'Update Post': '/api/posts/<int:id>/update/',
+        'Delete Post': '/api/posts/<int:id>/delete/',
+        'Categories': '/api/categories/',
+    }
+    return Response(api_urls)
+
+# クラスベースのビュー例
+class PostListView(generics.ListAPIView):
+    """投稿一覧を取得"""
+    queryset = Post.objects.filter(is_published=True)
+    serializer_class = PostListSerializer
+
+class PostDetailView(generics.RetrieveAPIView):
+    """投稿詳細を取得"""
+    queryset = Post.objects.filter(is_published=True)
+    serializer_class = PostDetailSerializer
+    lookup_field = 'id'
+
+class PostCreateView(generics.CreateAPIView):
+    """新しい投稿を作成"""
+    queryset = Post.objects.all()
+    serializer_class = PostCreateUpdateSerializer
+    
+    def perform_create(self, serializer):
+        # 認証されたユーザーを作成者として設定
+        serializer.save(author=self.request.user)
+
+class PostUpdateView(generics.UpdateAPIView):
+    """投稿を更新"""
+    queryset = Post.objects.all()
+    serializer_class = PostCreateUpdateSerializer
+    lookup_field = 'id'
+
+class PostDeleteView(generics.DestroyAPIView):
+    """投稿を削除"""
+    queryset = Post.objects.all()
+    lookup_field = 'id'
+
+class CategoryListView(generics.ListCreateAPIView):
+    """カテゴリ一覧の取得・作成"""
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+```
+
+### 5.2 より複雑なビューの例
+
+```python
+# blog/views.py に追加
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+
+@api_view(['GET'])
+def posts_by_category(request, category_id):
+    """特定カテゴリの投稿一覧を取得"""
+    try:
+        category = Category.objects.get(id=category_id)
+    except Category.DoesNotExist:
+        return Response(
+            {'error': 'Category not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    posts = Post.objects.filter(category=category, is_published=True)
+    serializer = PostListSerializer(posts, many=True)
+    
+    return Response({
+        'category': CategorySerializer(category).data,
+        'posts': serializer.data
+    })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_posts(request):
+    """認証されたユーザーの投稿一覧を取得"""
+    posts = Post.objects.filter(author=request.user)
+    serializer = PostListSerializer(posts, many=True)
+    return Response(serializer.data)
+```
+
+## 6. URL設定
+
+### 6.1 アプリレベルのURL設定
+
+```python
+# blog/urls.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.api_overview, name='api-overview'),
+    
+    # 投稿関連
+    path('posts/', views.PostListView.as_view(), name='post-list'),
+    path('posts/<int:id>/', views.PostDetailView.as_view(), name='post-detail'),
+    path('posts/create/', views.PostCreateView.as_view(), name='post-create'),
+    path('posts/<int:id>/update/', views.PostUpdateView.as_view(), name='post-update'),
+    path('posts/<int:id>/delete/', views.PostDeleteView.as_view(), name='post-delete'),
+    
+    # カテゴリ関連
+    path('categories/', views.CategoryListView.as_view(), name='category-list'),
+    path('categories/<int:category_id>/posts/', views.posts_by_category, name='posts-by-category'),
+    
+    # ユーザー関連
+    path('my-posts/', views.my_posts, name='my-posts'),
+]
+```
+
+### 6.2 プロジェクトレベルのURL設定
+
+```python
+# myapi/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/', include('blog.urls')),
+    path('api-auth/', include('rest_framework.urls')),  # DRF認証用
+]
+```
+
+## 7. 管理画面の設定
+
+```python
+# blog/admin.py
+
+from django.contrib import admin
+from .models import Post, Category
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ['name', 'description', 'created_at']
+    search_fields = ['name']
+
+@admin.register(Post)
+class PostAdmin(admin.ModelAdmin):
+    list_display = ['title', 'author', 'category', 'is_published', 'created_at']
+    list_filter = ['is_published', 'category', 'created_at']
+    search_fields = ['title', 'content']
+    list_editable = ['is_published']
+```
+
+## 8. APIの動作確認
+
+### 8.1 サーバーの起動
+
+```bash
+python manage.py runserver
+```
+
+### 8.2 APIエンドポイントの確認
+
+以下のURLにアクセスしてAPIの動作を確認できます：
+
+- `http://127.0.0.1:8000/api/` - API概要
+- `http://127.0.0.1:8000/api/posts/` - 投稿一覧
+- `http://127.0.0.1:8000/api/categories/` - カテゴリ一覧
+- `http://127.0.0.1:8000/admin/` - 管理画面
+
+### 8.3 curlコマンドでのテスト例
+
+```bash
+# 投稿一覧を取得
+curl http://127.0.0.1:8000/api/posts/
+
+# 特定の投稿詳細を取得
+curl http://127.0.0.1:8000/api/posts/1/
+
+# 新しい投稿を作成（認証が必要）
+curl -X POST http://127.0.0.1:8000/api/posts/create/ \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Test Post", "content": "This is a test post", "category": 1}'
+```
+
+## 9. よく使用される追加機能
+
+### 9.1 検索機能の追加
+
+```python
+# blog/views.py に追加
+
+from rest_framework import filters
+from django_filters.rest_framework import DjangoFilterBackend
+
+class PostListView(generics.ListAPIView):
+    queryset = Post.objects.filter(is_published=True)
+    serializer_class = PostListSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['category', 'author']
+    search_fields = ['title', 'content']
+    ordering_fields = ['created_at', 'title']
+```
+
+### 9.2 認証・権限の追加
+
+```python
+# blog/views.py に追加
+
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+
+class PostCreateView(generics.CreateAPIView):
+    queryset = Post.objects.all()
+    serializer_class = PostCreateUpdateSerializer
+    permission_classes = [IsAuthenticated]  # 認証が必要
+```
+
+### 9.3 エラーハンドリングの改善
+
+```python
+# blog/views.py に追加
+
+from rest_framework.views import exception_handler
+from rest_framework.response import Response
+
+def custom_exception_handler(exc, context):
+    response = exception_handler(exc, context)
+    
+    if response is not None:
+        custom_response_data = {
+            'error': True,
+            'message': 'An error occurred',
+            'details': response.data
+        }
+        response.data = custom_response_data
+    
+    return response
+```
+
+## 10. まとめ
+
+Django REST Frameworkを使用したAPI開発の基本的な流れは以下の通りです：
+
+1. **環境構築** - 必要なパッケージのインストールと設定
+2. **モデル作成** - データベース構造の定義
+3. **シリアライザー** - データの変換ルールを定義
+4. **ビュー** - APIのロジックを実装
+5. **URL設定** - エンドポイントの設定
+6. **テスト・確認** - APIの動作確認
+
+この流れを理解することで、基本的なREST APIを構築できるようになります。実際の開発では、認証、権限、バリデーション、エラーハンドリングなど、より複雑な要件に対応する必要がありますが、この基本的な流れがベースとなります。
+
+## 次のステップ
+
+- 認証システム（JWT、OAuth）の実装
+- APIのテスト自動化
+- デプロイメント（Docker、AWS等）
+- フロントエンドとの連携
+- パフォーマンス最適化
+
+継続的に学習を進めて、より実践的なAPIを構築できるようになりましょう！
