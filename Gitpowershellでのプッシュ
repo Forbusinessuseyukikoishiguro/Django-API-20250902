@@ -1,0 +1,231 @@
+# 新人エンジニア向けGit実践ガイド & チートシート
+
+## 📚 はじめに
+
+この記事は、実際のプロジェクトでGitを使い始める新人エンジニア向けに作成されました。VSCode + PowerShellを使った実践的なワークフローを解説します。
+
+---
+
+## 🛠️ 環境設定
+
+### VSCodeでのGit操作環境
+- **推奨ターミナル**: PowerShell
+- **ターミナルの開き方**: `Ctrl + Shift + @`
+- **便利な拡張機能**: Git Graph（コミット履歴の可視化）
+
+---
+
+## 📋 基本ワークフロー（5ステップ）
+
+### 1️⃣ 変更の確認
+```powershell
+git status
+```
+
+**何が分かる？**
+- 変更されたファイル（赤字）
+- ステージングされたファイル（緑字）
+- 追跡されていないファイル
+
+### 2️⃣ ファイルをステージングに追加
+```powershell
+# 特定のファイルを追加
+git add "ファイル名"
+
+# すべての変更を追加（注意して使用）
+git add .
+```
+
+**日本語ファイル名の注意点**
+```powershell
+# ❌ 間違い
+git add 040.外部設計/レビュー記録.xlsx
+
+# ✅ 正しい（引用符で囲む）
+git add "040.外部設計/レビュー記録.xlsx"
+```
+
+### 3️⃣ ステージング確認
+```powershell
+git status
+```
+ファイルが緑色で表示されていればOK！
+
+### 4️⃣ コミット
+```powershell
+# 直接メッセージを指定（推奨）
+git commit -m "変更内容を簡潔に説明"
+
+# エディターでメッセージ入力
+git commit
+```
+
+### 5️⃣ プッシュ
+```powershell
+git push origin master
+# または
+git push origin main
+```
+
+---
+
+## ⚠️ よくあるエラーと解決法
+
+### エラー1: プッシュが拒否される
+```
+! [rejected] master -> master (fetch first)
+error: failed to push some refs
+```
+
+**原因**: リモートに新しい変更があり、ローカルが古い
+
+**解決手順**:
+```powershell
+# 1. リモートの変更を取得
+git fetch origin
+
+# 2. 現在の状況を確認
+git status
+
+# 3. リモートの変更をマージ
+git pull origin master
+
+# 4. 再度プッシュ
+git push origin master
+```
+
+### エラー2: 分岐している場合
+```
+Your branch and 'origin/master' have diverged,
+and have 1 and 11 different commits each, respectively.
+```
+
+**意味**: 
+- ローカル: 1つの新しいコミット
+- リモート: 11の新しいコミット
+
+**解決**:
+```powershell
+git pull origin master
+```
+自動的にマージされます（競合がなければ）。
+
+### エラー3: 競合（コンフリクト）が発生
+```
+CONFLICT (content): Merge conflict in filename
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+**解決手順**:
+1. VSCodeで競合ファイルを開く
+2. 競合マーカー（`<<<<<<<`, `=======`, `>>>>>>>`）を確認
+3. 必要な変更を選択・編集
+4. 競合マーカーを削除
+5. ファイルを保存
+6. 再度コミット・プッシュ
+
+---
+
+## 📝 チートシート
+
+### 🔍 状況確認コマンド
+```powershell
+git status              # 現在の状況
+git log --oneline -5    # 最新5件のコミット履歴  
+git diff                # 変更内容の詳細表示
+git diff --cached       # ステージング内容の確認
+```
+
+### 📂 ファイル操作
+```powershell
+# ファイルをステージングに追加
+git add "ファイル名"
+git add .                        # すべての変更
+
+# ステージングから除外
+git restore --staged "ファイル名"
+
+# 変更を取り消し（注意！）
+git restore "ファイル名"
+```
+
+### 💾 コミット操作
+```powershell
+git commit -m "メッセージ"       # 直接コミット
+git commit --amend               # 直前のコミットを修正
+```
+
+### 🌐 リモート操作
+```powershell
+git fetch origin                 # リモート情報の取得
+git pull origin master          # リモートの変更をマージ
+git push origin master          # ローカルの変更をプッシュ
+```
+
+---
+
+## 💡 実践Tips
+
+### VSCode活用術
+- **右クリック → パスのコピー**: ファイルパスを簡単取得
+- **Tabキー補完**: ファイル名の自動補完
+- **Git Graph拡張**: ブランチとコミットの可視化
+
+### ベストプラクティス
+1. **こまめにcommit**: 小さな単位で変更を記録
+2. **明確なコミットメッセージ**: 何を変更したかを簡潔に
+3. **pushする前にpull**: 常にリモートの最新状態を確認
+4. **一時ファイルは無視**: `~$`で始まるExcel一時ファイルなど
+
+### 安全な作業手順
+```powershell
+# 作業開始前（推奨）
+git pull origin master          # 最新状態に更新
+
+# 作業後
+git status                      # 変更確認
+git add "変更ファイル"           # 必要なファイルのみ追加
+git commit -m "変更内容"        # コミット
+git push origin master         # プッシュ
+```
+
+---
+
+## 🚨 注意事項
+
+### してはいけないこと
+- **機密情報をコミットしない**: パスワード、API キーなど
+- **大きなファイルは注意**: 画像、動画、バイナリファイル
+- **他人の作業中ファイルを勝手に変更しない**
+
+### トラブル時の心構え
+- **慌てずに`git status`で現状確認**
+- **エラーメッセージをよく読む**
+- **困ったら経験者に相談**（無理に解決しない）
+
+---
+
+## 📖 さらに学ぶために
+
+### 推奨リソース
+- [Git公式ドキュメント](https://git-scm.com/doc)
+- [Atlassian Git チュートリアル](https://www.atlassian.com/git/tutorials)
+- VSCode Git機能のドキュメント
+
+### 次のステップ
+1. ブランチ操作の習得
+2. GitHubやGitLabの使い方
+3. チーム開発のワークフロー（Git Flow、GitHub Flow）
+
+---
+
+**🎯 覚えておくべき最重要コマンド**
+```powershell
+git status    # 現在の状況確認
+git add .     # 変更をステージング
+git commit    # 変更をコミット  
+git pull      # リモートから取得・マージ
+git push      # リモートにプッシュ
+```
+
+頑張って！ 💪
